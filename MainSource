@@ -61,7 +61,7 @@ function read_and_verify()
     local date_str, hwid = decoded:match("^(.*)|(.*)$")
     
     if not date_str or not hwid then
-        gg.alert("Định dạng HWID không hợp lệ!")
+        gg.alert("Định dạng ID không hợp lệ!")
         return false
     end
     
@@ -69,18 +69,157 @@ function read_and_verify()
     local is_valid, diff_days = check_date_valid(date_str)
     
     if not is_valid then
-        gg.alert(string.format("HWID đã hết hạn (quá %.2f ngày)", diff_days))
+        gg.alert(string.format("ID đã hết hạn (quá %.2f ngày)", diff_days))
         return false
     end
     
-    gg.alert(string.format("HWID hợp lệ!\nNgày: %s\nHWID: %s\nCòn hiệu lực: %.2f ngày", 
+    gg.alert(string.format("ID hợp lệ!\nNgày: %s\nID: %s", 
            date_str, hwid, 1 - diff_days))
     return true
 end
 
 -- Chạy kiểm tra
 if gg then
-    read_and_verify()
+    if read_and_verify() then
+        local vars = {
+            {address = 0x04D423C4, value = 0, name = "X", freeze = false},
+            {address = 0x04D423CC, value = 0, name = "Y", freeze = true}, 
+            {address = 0x04D423D4, value = 0, name = "Z", freeze = false},
+            {address = 0x04D423D0, value = 8000, name = "Direction", freeze = true},
+            {address = 0x04E84A60, value = 0, name = "Camera", freeze = false},
+            {address = 0x04D46838, value = 0, name = "Ti So", freeze = false},
+            {address = 0x04F95A30, value = 0, name = "Gold", freeze = false},
+            {address = 0x04F95A50, value = 0, name = "Diamond", freeze = false},
+            {address = 0x04F9A380, value = 0, name = "DP", freeze = false}
+        }
+        
+        local savedList = {}
+        local previousCameraValue = 0 
+        local previousTiSoValue = 0
+        
+        local oldgold = gg.getValues({{address = 0x04F95A30, flags = gg.TYPE_DWORD}})[1].value
+        local olddiamond = gg.getValues({{address = 0x04F95A50, flags = gg.TYPE_DWORD}})[1].value
+        local oldDP = gg.getValues({{address = 0x04F9A380, flags = gg.TYPE_DWORD}})[1].value
+        
+        local function Update()
+            gg.clearList()
+            savedList = {} -- Reset danh sách
+            for i, v in ipairs(vars) do
+                table.insert(savedList, {
+                    address = v.address,
+                    flags = gg.TYPE_DWORD,
+                    value = v.value,
+                    name = v.name,
+                    freeze = v.freeze
+                })
+            end
+            gg.addListItems(savedList)
+        end
+        
+        local function CheckAndFreeze()
+            local t = 0
+            local e = 0
+            local c = 0
+            while true do
+                c = c+1
+                e = e+1
+                local tiSoValue = gg.getValues({{address = 0x04D46838, flags = gg.TYPE_DWORD}})[1].value
+                if e == 30 then
+                    e = 0
+                    local gold = gg.getValues({{address = 0x04F95A30, flags = gg.TYPE_DWORD}})[1].value
+                    local diamond = gg.getValues({{address = 0x04F95A50, flags = gg.TYPE_DWORD}})[1].value
+                    local dp = gg.getValues({{address = 0x04F9A380, flags = gg.TYPE_DWORD}})[1].value
+                    gg.toast("Vàng hiện tại: " .. (gold).."\nKim cương hiện tại: " .. (diamond) .."\n DP hiện tại: ".. (dp))
+                end
+                if tiSoValue ~= previousTiSoValue then
+                    c = 0
+                    local cameraValue = gg.getValues({{address = 0x04E84A60, flags = gg.TYPE_DWORD}})[1].value
+                    local action = "Không xác định"
+                    local isOwnGoal = false
+                    if (cameraValue >= -1033000000) and (cameraValue <= -1028000000) then
+                        action = "Phản lưới"
+                        isOwnGoal = true
+                    elseif (cameraValue >= 1115000000) and (cameraValue <= 1119000000) then
+                        action = "Phản lưới"
+                        isOwnGoal = true
+                    else
+                        action = "Ghi bàn"
+                    end
+                    cameraValue = 0
+                
+                    gg.toast("Le Minh Tri Đã " .. action)
+        
+                    if isOwnGoal then
+                        if vars[4].value > 0 then
+                            vars[4].value = -8000--Tốc độ Bóng
+                        elseif vars[4].value < 0 then
+                            vars[4].value = 8000--Tốc độ bóng
+                        end
+                        Update()
+                    end
+        
+                    previousCameraValue = cameraValue
+                    previousTiSoValue = tiSoValue
+        
+                    --if tiSoValue ~= 0 then
+                        --for i, v in ipairs(vars) do
+                            --if  v.name == "Z" or v.name == "Y" then
+                                --v.freeze = true
+                            --end
+                            --if v.name == "Direction" then
+                                --v.freeze = false
+                            --end
+                        --end
+                        --Update()
+                        --gg.sleep(10000)
+                    --end
+                end
+        
+                if tiSoValue >= 8 then
+                    t = t + 1
+                    for i, v in ipairs(vars) do
+                        if t == 10 then
+                            t = 0
+                            if v.name == "X" then
+                                if v.freeze == true then
+                                    v.freeze = false
+                                else
+                                    v.freeze = true
+                                end
+                            end
+                            if v.name == "Z" then
+                                v.freeze = true
+                            end
+                        end 
+                        if v.name == "Direction" or v.name == "Y" then
+                            v.freeze = false
+                        end
+                    end
+                    Update()
+                else
+                    for i, v in ipairs(vars) do
+                        if v.name == "Y" or v.name == "Direction" or v.name == "Z" then
+                            v.freeze = true
+                        elseif v.name == "X" then
+                            v.freeze = false
+                        end
+                    end
+                    Update()
+                end
+                if c == 200 then
+                    for i, v in ipairs(vars) do
+                        v.freeze = false
+                    end
+                    Update()
+                    c = 0
+                end
+                gg.sleep(300)
+            end
+        end
+        
+        Update()
+        CheckAndFreeze()
+    end
 else
     print("Yêu cầu môi trường GameGuardian")
 end
